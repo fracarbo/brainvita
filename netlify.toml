@@ -1,0 +1,3 @@
+# Sito statico senza build: la cartella radice viene pubblicata così com'è.
+[build]
+  publish = "."
