@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="it" data-skin="ocean">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Brain Vita</title>
+<meta name="theme-color" content="#0b1822">
+<meta name="description" content="Brain Vita: il solitario con i pioli, in versione minimal.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Brain Vita">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: colonna unica. Intestazione, contatori, tavola quadrata al centro, comandi in basso.
+   Un solo mondo visivo (scuro) con quattro tinte scelte dal pulsante tavolozza. */
+:root{
+  --bg:#0b1822;
+  --tile:#132532;
+  --tile-on:#1b3445;
+  --peg:#2bb8f6;
+  --ink:#e6f2f9;
+  --mute:#6f8a9c;
+  --font:'Outfit',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+html[data-skin="mint"]{--bg:#0b1914;--tile:#12281f;--tile-on:#1a3a2d;--peg:#3ddc97;--ink:#e5f7ee;--mute:#6c9482}
+html[data-skin="ember"]{--bg:#17110d;--tile:#241a14;--tile-on:#33261c;--peg:#ff9f4a;--ink:#f8ece2;--mute:#9a806c}
+html[data-skin="paper"]{--bg:#eef3f6;--tile:#dbe5ec;--tile-on:#c8d7e1;--peg:#0b84c6;--ink:#0f1c26;--mute:#5a7183;color-scheme:light}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--font);
+  -webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;
+  touch-action:manipulation;overscroll-behavior:none;
+  transition:background .25s ease;
+}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--peg);outline-offset:3px}
+
+.app{
+  height:100%;max-width:520px;margin:0 auto;
+  display:flex;flex-direction:column;align-items:stretch;gap:16px;
+  /* In fondo restano ~56px liberi (più la safe area) per il badge fisso "Powered by Netlify",
+     così non copre mai i comandi. La tavola si restringe di conseguenza. */
+  --badge-space:56px;
+  padding:max(16px,env(safe-area-inset-top)) 16px calc(var(--badge-space) + env(safe-area-inset-bottom,0px));
+}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{margin:0;font-size:24px;font-weight:700;letter-spacing:.01em;line-height:1.1}
+.record{margin:2px 0 0;font-size:13px;font-weight:300;color:var(--mute);font-variant-numeric:tabular-nums}
+.icon-btn{
+  width:44px;height:44px;border:0;border-radius:14px;background:var(--tile);
+  display:grid;place-items:center;cursor:pointer;transition:background .15s ease,transform .15s ease;
+}
+.icon-btn:hover{background:var(--tile-on)}
+.icon-btn:active{transform:scale(.94)}
+.icon-btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--tile);border-radius:16px;padding:10px 14px 9px}
+.stat b{display:block;font-size:30px;font-weight:700;line-height:1.05;font-variant-numeric:tabular-nums}
+.stat.main b{color:var(--peg)}
+.stat span{font-size:11px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+
+.stage{flex:1;min-height:0;position:relative;container-type:size;display:grid;place-items:center}
+.board{
+  width:min(100cqw,100cqh,460px);aspect-ratio:1;
+  display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(7,1fr);gap:clamp(4px,1.6cqmin,8px);
+}
+.cell{
+  position:relative;padding:0;margin:0;border:0;border-radius:24%;background:var(--tile);cursor:pointer;
+  transition:background .15s ease;min-width:0;min-height:0;
+}
+.cell.void{visibility:hidden;pointer-events:none}
+.cell.target{background:var(--tile-on)}
+.cell.target::after{
+  content:"";position:absolute;inset:36%;border-radius:50%;background:var(--peg);
+  animation:pop .28s cubic-bezier(.3,1.5,.5,1);
+}
+.peg{
+  position:absolute;inset:17%;border-radius:50%;background:var(--peg);
+  transform:scale(0);transition:transform .2s cubic-bezier(.3,1.4,.5,1),background .15s ease,box-shadow .15s ease;
+}
+.cell.on .peg{transform:scale(1)}
+.cell.sel .peg{background:var(--ink);box-shadow:0 0 0 clamp(3px,1.2cqmin,6px) color-mix(in srgb,var(--peg) 50%,transparent)}
+.cell.on:not(.sel):hover .peg{transform:scale(1.06)}
+@keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+
+.result{
+  position:absolute;left:50%;top:50%;translate:-50% -50%;width:min(86%,340px);
+  background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid color-mix(in srgb,var(--ink) 12%,transparent);border-radius:24px;padding:22px 20px 18px;text-align:center;
+  box-shadow:0 20px 50px rgba(0,0,0,.35);animation:rise .3s ease;
+}
+.result[hidden]{display:none}
+.result h2{margin:0 0 4px;font-size:28px;font-weight:700;color:var(--peg)}
+.result p{margin:0 0 16px;font-size:15px;font-weight:300;color:var(--ink);line-height:1.4;font-variant-numeric:tabular-nums}
+.result .row{display:flex;gap:8px}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+.controls{display:flex;gap:8px}
+.btn{
+  flex:1;height:48px;border:0;border-radius:14px;background:var(--tile);font-size:15px;font-weight:500;cursor:pointer;
+  transition:background .15s ease,transform .15s ease,opacity .15s ease;
+}
+.btn:hover:not(:disabled){background:var(--tile-on)}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.primary{background:var(--peg);color:var(--bg)}
+.btn.primary:hover:not(:disabled){background:var(--peg);filter:brightness(1.08)}
+.seg{display:flex;flex:1.1;background:var(--tile);border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;border:0;border-radius:10px;background:transparent;font-size:15px;font-weight:500;color:var(--mute);cursor:pointer;font-variant-numeric:tabular-nums}
+.seg button[aria-pressed="true"]{background:var(--peg);color:var(--bg)}
+
+dialog.small{width:min(86vw,340px);text-align:center;padding:22px 20px 18px}
+dialog.small h2{margin:0 0 6px;font-size:22px;font-weight:700}
+dialog.small p{margin:0 0 18px;font-size:15px;font-weight:300;line-height:1.4}
+dialog.small .row{display:flex;gap:8px}
+dialog.small .btn{display:block}
+.btn svg[hidden]{display:none}
+.pause{
+  position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;
+  background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  animation:rise .25s ease;
+}
+.pause[hidden]{display:none}
+.pause h2{margin:0;font-size:28px;font-weight:700;color:var(--peg)}
+.pause p{margin:0 0 14px;font-size:15px;font-weight:300;color:var(--mute)}
+.pause .btn{flex:none;padding:0 32px}
+.actions{display:flex;gap:8px}
+.btn svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+.btn{display:grid;place-items:center}
+.seg{align-items:stretch}
+.icon-btn.small{width:36px;height:36px;border-radius:12px;flex:none}
+.icon-btn.small svg{width:18px;height:18px}
+
+/* Guida: finestra con tre passi animati */
+dialog{
+  width:min(92vw,400px);max-height:92dvh;padding:18px 18px 16px;margin:auto;overflow:auto;
+  background:var(--bg);color:var(--ink);font-family:var(--font);
+  border:1px solid color-mix(in srgb,var(--ink) 12%,transparent);border-radius:24px;
+  box-shadow:0 24px 60px rgba(0,0,0,.45);
+}
+dialog::backdrop{background:rgba(4,10,14,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+dialog[open]{animation:rise .25s ease}
+.h-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.h-head h2{margin:0;font-size:20px;font-weight:700}
+.slide[hidden]{display:none}
+.art{
+  height:170px;border-radius:18px;background:var(--tile);display:flex;align-items:center;justify-content:center;gap:18px;padding:12px;overflow:hidden;
+}
+.art svg{width:100%;height:100%;max-height:146px;overflow:visible}
+#demoBoard{width:auto;height:136px;flex:none}
+.big{font-size:34px;font-weight:700;color:var(--peg);font-variant-numeric:tabular-nums;white-space:nowrap}
+.big i{font-style:normal;font-weight:300;color:var(--mute);margin:0 8px}
+.slide h3{margin:16px 0 6px;font-size:19px;font-weight:700}
+.slide p{margin:0;font-size:15px;font-weight:300;line-height:1.5;color:var(--ink);min-height:90px}
+.h-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}
+.h-foot .btn{flex:none;padding:0 22px;display:block}
+.dots{display:flex;gap:2px}
+.dots button{width:28px;height:28px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;padding:0}
+.dots button::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--mute);opacity:.5;transition:all .2s ease}
+.dots button[aria-current="true"]::before{background:var(--peg);opacity:1;width:20px;border-radius:4px}
+
+.art .c{fill:var(--tile-on)}
+.art .pegA,.art .pegB,.art .pegC,.art .pg{fill:var(--peg)}
+.art .ring{fill:none;stroke:var(--peg);stroke-width:5;opacity:0}
+.art .dot{fill:var(--peg);opacity:0}
+.art .arr path,.art .x path{fill:none;stroke-width:3.5;stroke-linecap:round;stroke-linejoin:round}
+.art .arr path{stroke:var(--peg)}
+.art .x path{stroke:var(--mute);opacity:.65}
+.art svg *{transform-box:fill-box;transform-origin:center}
+#demoBoard .c{fill:color-mix(in srgb,var(--bg) 55%,transparent)}
+
+.fade{animation:dFade 4.5s ease infinite}
+.mv{animation:dMove 4.5s ease-in-out infinite}
+.up{animation:dUp 4.5s ease-in-out infinite}
+.ring{animation:dRing 4.5s ease infinite}
+.pegA{animation:dSel 4.5s ease infinite}
+.pegB{animation:dGone 4.5s ease infinite}
+.dot{animation:dDot 4.5s ease infinite}
+@keyframes dFade{0%{opacity:0}6%,88%{opacity:1}100%{opacity:0}}
+@keyframes dMove{0%,32%{transform:translateX(0)}52%,100%{transform:translateX(160px)}}
+@keyframes dUp{0%,32%{transform:translateY(0)}42%{transform:translateY(-16px)}52%,100%{transform:translateY(0)}}
+@keyframes dRing{0%,12%{opacity:0}18%,52%{opacity:.5}58%,100%{opacity:0}}
+@keyframes dSel{0%,12%{fill:var(--peg)}18%,52%{fill:var(--ink)}58%,100%{fill:var(--peg)}}
+@keyframes dGone{0%,50%{transform:scale(1);opacity:1}60%,100%{transform:scale(0);opacity:0}}
+@keyframes dDot{0%,14%{opacity:0}20%,52%{opacity:.9}54%,100%{opacity:0}}
+.arr{animation:dPulse 2.4s ease infinite}
+@keyframes dPulse{0%,100%{opacity:.25}12%,35%{opacity:1}}
+.pegC{animation:dBreath 2.4s ease-in-out infinite}
+@keyframes dBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+.pg{animation:dVanish 8s ease infinite}
+@keyframes dVanish{0%,50%{opacity:1;transform:scale(1)}55%,94%{opacity:0;transform:scale(0)}100%{opacity:1;transform:scale(1)}}
+.pg.last{animation:dLast 8s ease infinite}
+@keyframes dLast{0%,86%{opacity:0;transform:scale(.3)}91%,98%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.3)}}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Brain Vita</h1>
+      <p class="record" id="record">Record: nessuno</p>
+    </div>
+    <div class="actions">
+      <button class="icon-btn" id="info" type="button" aria-label="Come si gioca" title="Come si gioca" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><circle cx="12" cy="7.8" r=".6"/></svg>
+      </button>
+      <button class="icon-btn" id="skin" type="button" aria-label="Cambia tema: Oceano" title="Cambia tema">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 2-.9 2-2 0-.55-.22-1.05-.58-1.4-.35-.36-.57-.85-.57-1.4 0-1.1.9-2 2-2H17c2.76 0 5-2.24 5-5 0-4.42-4.48-6.2-10-6.2Z"/><circle cx="7.5" cy="11.5" r=".9"/><circle cx="10.5" cy="7.5" r=".9"/><circle cx="15.5" cy="7.5" r=".9"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="Partita">
+    <div class="stat main"><b id="pegs">32</b><span>Pioli</span></div>
+    <div class="stat"><b id="moves">0</b><span>Mosse</span></div>
+    <div class="stat"><b id="time">0:00</b><span>Tempo</span></div>
+  </section>
+
+  <main class="stage">
+    <div class="board" id="board" role="group" aria-label="Tavola"></div>
+    <div class="pause" id="paused" hidden>
+      <h2>In pausa</h2>
+      <p>Il tempo è fermo.</p>
+      <button class="btn primary" id="resume" type="button">Riprendi</button>
+    </div>
+    <div class="result" id="result" hidden role="status">
+      <h2 id="rTitle"></h2>
+      <p id="rText"></p>
+      <div class="row">
+        <button class="btn" id="rUndo" type="button">Annulla mossa</button>
+        <button class="btn primary" id="rNew" type="button">Nuova partita</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="controls">
+    <button class="btn" id="undo" type="button" aria-label="Annulla l'ultima mossa" title="Annulla">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+    </button>
+    <button class="btn" id="restart" type="button" aria-label="Ricomincia la partita" title="Ricomincia">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5v4.8H8.3"/></svg>
+    </button>
+    <button class="btn" id="pause" type="button" aria-label="Metti in pausa" title="Pausa">
+      <svg id="icPause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5v14M15.5 5v14"/></svg>
+      <svg id="icPlay" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M8 5.5v13l10.5-6.5Z"/></svg>
+    </button>
+    <div class="seg" role="group" aria-label="Variante">
+      <button type="button" data-v="en" aria-pressed="true" aria-label="Inglese, 33 buchi">33</button>
+      <button type="button" data-v="fr" aria-pressed="false" aria-label="Francese, 37 buchi">37</button>
+    </div>
+  </div>
+</div>
+
+<dialog id="howto" aria-labelledby="hTitle">
+  <div class="h-head">
+    <h2 id="hTitle">Come si gioca</h2>
+    <button class="icon-btn small" id="hClose" type="button" aria-label="Chiudi" title="Chiudi">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+
+  <section class="slide" data-step="0">
+    <div class="art">
+      <svg viewBox="0 0 240 100" aria-hidden="true"><g class="fade">
+        <rect class="c" x="8" y="18" width="64" height="64" rx="15"/>
+        <rect class="c" x="88" y="18" width="64" height="64" rx="15"/>
+        <rect class="c" x="168" y="18" width="64" height="64" rx="15"/>
+        <circle class="dot" cx="200" cy="50" r="9"/>
+        <circle class="pegB" cx="120" cy="50" r="22"/>
+        <g class="mv"><g class="up">
+          <circle class="ring" cx="40" cy="50" r="30"/>
+          <circle class="pegA" cx="40" cy="50" r="22"/>
+        </g></g>
+      </g></svg>
+    </div>
+    <h3>Salta e cattura</h3>
+    <p>Tocca un piolo, poi il buco vuoto a due passi di distanza. Il piolo salta sopra quello vicino e lo toglie dalla tavola.</p>
+  </section>
+
+  <section class="slide" data-step="1" hidden>
+    <div class="art">
+      <svg viewBox="0 0 240 140" aria-hidden="true">
+        <g class="x"><path d="M63 17l12 12M75 17 63 29"/><path d="M165 17l12 12M177 17l-12 12"/><path d="M63 111l12 12M75 111l-12 12"/><path d="M165 111l12 12M177 111l-12 12"/></g>
+        <g class="arr" style="animation-delay:0s"><path d="M120 44V19M111 28l9-9 9 9"/></g>
+        <g class="arr" style="animation-delay:.3s"><path d="M146 70h35M172 61l9 9-9 9"/></g>
+        <g class="arr" style="animation-delay:.6s"><path d="M120 96v25M111 112l9 9 9-9"/></g>
+        <g class="arr" style="animation-delay:.9s"><path d="M94 70H59M68 61l-9 9 9 9"/></g>
+        <circle class="pegC" cx="120" cy="70" r="20"/>
+      </svg>
+    </div>
+    <h3>Solo in linea retta</h3>
+    <p>Si salta in su, in giù, a sinistra e a destra. Le diagonali non valgono e il buco di arrivo deve essere vuoto.</p>
+  </section>
+
+  <section class="slide" data-step="2" hidden>
+    <div class="art">
+      <svg id="demoBoard" viewBox="0 0 123 123" aria-hidden="true"></svg>
+      <div class="big" aria-hidden="true">32<i>→</i>1</div>
+    </div>
+    <h3>Ne deve restare uno</h3>
+    <p>Si parte con il buco al centro. Continua a saltare finché puoi: meno pioli restano, meglio è. Un solo piolo al centro è il risultato perfetto.</p>
+  </section>
+
+  <div class="h-foot">
+    <div class="dots" role="group" aria-label="Passi"></div>
+    <button class="btn primary" id="hNext" type="button">Avanti</button>
+  </div>
+</dialog>
+
+<dialog id="confirm" aria-labelledby="cTitle" aria-describedby="cText" class="small">
+  <h2 id="cTitle">Ricominciare?</h2>
+  <p id="cText">La partita in corso andrà persa.</p>
+  <div class="row">
+    <button class="btn" id="cNo" type="button">Annulla</button>
+    <button class="btn primary" id="cYes" type="button">Ricomincia</button>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  var N = 7, CENTER = 24;
+  var VALID = {
+    en: function (r, c) { return Math.abs(r - 3) <= 1 || Math.abs(c - 3) <= 1; },
+    fr: function (r, c) { return Math.abs(r - 3) + Math.abs(c - 3) <= 4; }
+  };
+  var SKINS = [
+    { id: 'ocean', name: 'Oceano', bg: '#0b1822' }, { id: 'mint', name: 'Menta', bg: '#0b1914' },
+    { id: 'ember', name: 'Brace', bg: '#17110d' }, { id: 'paper', name: 'Carta', bg: '#eef3f6' }
+  ];
+  var DIRS = [[-2, 0], [2, 0], [0, -2], [0, 2]];
+
+  function $(id) { return document.getElementById(id); }
+  var boardEl = $('board'), cells = [];
+  var S, sel = null, targets = [];
+
+  function fresh(variant, skin) {
+    var board = [];
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) board.push(VALID[variant](r, c) ? 1 : -1);
+    board[CENTER] = 0;
+    return { variant: variant, board: board, history: [], moves: 0, elapsed: 0, startedAt: null, over: false, skin: skin || 0 };
+  }
+
+  function store(key, val) {
+    try { if (val === undefined) { var v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } localStorage.setItem(key, JSON.stringify(val)); } catch (e) { return null; }
+    return null;
+  }
+
+  function elapsed() { return S.startedAt ? (Date.now() - S.startedAt) / 1000 : S.elapsed; }
+  function fmt(t) { t = Math.floor(t); return Math.floor(t / 60) + ':' + ('0' + (t % 60)).slice(-2); }
+  function plural(n) { return n + (n === 1 ? ' piolo' : ' pioli'); }
+
+  function movesFrom(i) {
+    var r = Math.floor(i / N), c = i % N, out = [], b = S.board;
+    for (var d = 0; d < 4; d++) {
+      var r2 = r + DIRS[d][0], c2 = c + DIRS[d][1];
+      if (r2 < 0 || r2 >= N || c2 < 0 || c2 >= N) continue;
+      var to = r2 * N + c2, mid = ((r + r2) / 2) * N + (c + c2) / 2;
+      if (b[to] === 0 && b[mid] === 1) out.push({ to: to, mid: mid });
+    }
+    return out;
+  }
+  function anyMove() {
+    for (var i = 0; i < N * N; i++) if (S.board[i] === 1 && movesFrom(i).length) return true;
+    return false;
+  }
+  function count() { var n = 0; for (var i = 0; i < S.board.length; i++) if (S.board[i] === 1) n++; return n; }
+
+  function build() {
+    for (var i = 0; i < N * N; i++) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'cell'; b.dataset.i = i;
+      b.innerHTML = '<span class="peg"></span>';
+      boardEl.appendChild(b); cells.push(b);
+    }
+    boardEl.addEventListener('click', function (e) {
+      var t = e.target.closest('.cell'); if (t) tap(+t.dataset.i);
+    });
+  }
+
+  function setPaused(on) {
+    if (on === !!S.paused) return;
+    if (on) { if (S.over || !S.moves) return; S.elapsed = elapsed(); S.startedAt = null; sel = null; targets = []; }
+    else if (!S.over) S.startedAt = Date.now() - S.elapsed * 1000;
+    S.paused = on;
+    render();
+    (on ? $('resume') : $('pause')).focus();
+  }
+
+  function tap(i) {
+    if (S.over || S.paused) return;
+    var v = S.board[i];
+    if (v === 1) {
+      if (sel === i) { sel = null; targets = []; }
+      else { sel = i; targets = movesFrom(i); }
+    } else if (v === 0 && sel !== null) {
+      var m = targets.filter(function (x) { return x.to === i; })[0];
+      if (m) { jump(m); return; }
+      sel = null; targets = [];
+    } else { sel = null; targets = []; }
+    render();
+  }
+
+  function jump(m) {
+    var from = sel;
+    S.board[from] = 0; S.board[m.mid] = 0; S.board[m.to] = 1;
+    S.history.push({ from: from, mid: m.mid, to: m.to });
+    S.moves++;
+    if (!S.startedAt) S.startedAt = Date.now() - S.elapsed * 1000;
+    sel = null; targets = [];
+    if (!anyMove()) finish();
+    render();
+  }
+
+  function finish() {
+    S.elapsed = elapsed(); S.startedAt = null; S.over = true;
+    var left = count(), center = S.board[CENTER] === 1 && left === 1;
+    var key = 'brainvita-best-' + S.variant, best = store(key);
+    if (!best || left < best.pegs || (left === best.pegs && center && !best.center)) store(key, { pegs: left, center: center });
+  }
+
+  function undo() {
+    var h = S.history.pop(); if (!h) return;
+    S.board[h.from] = 1; S.board[h.mid] = 1; S.board[h.to] = 0;
+    S.moves--;
+    if (S.over) { S.over = false; S.startedAt = Date.now() - S.elapsed * 1000; }
+    sel = null; targets = [];
+    render();
+  }
+
+  function restart(variant) {
+    S = fresh(variant || S.variant, S.skin);
+    sel = null; targets = [];
+    render();
+  }
+
+  function rating(left, center) {
+    if (left === 1 && center) return ['Perfetto', 'Un solo piolo, nel buco centrale.'];
+    if (left === 1) return ['Genio', 'Un solo piolo rimasto.'];
+    if (left === 2) return ['Eccellente', 'Rimangono 2 pioli.'];
+    if (left === 3) return ['Molto bene', 'Rimangono 3 pioli.'];
+    if (left === 4) return ['Bene', 'Rimangono 4 pioli.'];
+    return ['Nessuna mossa', 'Rimangono ' + left + ' pioli. Annulla e riprova.'];
+  }
+
+  function render() {
+    var b = S.board, tset = {};
+    targets.forEach(function (t) { tset[t.to] = 1; });
+    var n = Math.sqrt(b.length);
+    for (var i = 0; i < b.length; i++) {
+      var el = cells[i], v = b[i];
+      el.classList.toggle('void', v === -1);
+      el.classList.toggle('on', v === 1);
+      el.classList.toggle('sel', i === sel);
+      el.classList.toggle('target', !!tset[i]);
+      el.disabled = v === -1;
+      el.setAttribute('aria-label', 'Riga ' + (Math.floor(i / N) + 1) + ', colonna ' + (i % N + 1) + (v === 1 ? ', piolo' : ', vuoto') + (tset[i] ? ', mossa possibile' : ''));
+    }
+    var left = count();
+    $('pegs').textContent = left;
+    $('moves').textContent = S.moves;
+    $('time').textContent = fmt(elapsed());
+    $('undo').disabled = !S.history.length || !!S.paused;
+    $('pause').disabled = S.over || (!S.moves && !S.paused);
+    $('paused').hidden = !S.paused;
+    boardEl.inert = !!S.paused;
+    $('icPause').toggleAttribute('hidden', !!S.paused); $('icPlay').toggleAttribute('hidden', !S.paused);
+    $('pause').setAttribute('aria-label', S.paused ? 'Riprendi la partita' : 'Metti in pausa');
+    $('pause').title = S.paused ? 'Riprendi' : 'Pausa';
+    document.querySelectorAll('.seg button').forEach(function (x) { x.setAttribute('aria-pressed', x.dataset.v === S.variant ? 'true' : 'false'); });
+
+    var best = store('brainvita-best-' + S.variant);
+    $('record').textContent = 'Record: ' + (best ? plural(best.pegs) + (best.center ? ', al centro' : '') : 'nessuno');
+
+    $('result').hidden = !S.over;
+    if (S.over) {
+      var r = rating(left, left === 1 && b[CENTER] === 1);
+      $('rTitle').textContent = r[0];
+      $('rText').textContent = r[1] + ' ' + S.moves + ' mosse in ' + fmt(S.elapsed) + '.';
+    }
+    var skin = SKINS[S.skin % SKINS.length];
+    document.documentElement.setAttribute('data-skin', skin.id);
+    $('skin').setAttribute('aria-label', 'Cambia tema: ' + skin.name);
+    $('skin').title = 'Tema: ' + skin.name;
+    var tc = document.querySelector('meta[name="theme-color"]');
+    if (tc) tc.setAttribute('content', skin.bg);
+  }
+
+  // Guida: tre passi, il tempo di gioco resta in pausa mentre è aperta.
+  function setupHowTo() {
+    var dlg = $('howto'), slides = dlg.querySelectorAll('.slide'), dots = dlg.querySelector('.dots'), next = $('hNext');
+    var step = 0, last = slides.length - 1, paused = false;
+
+    var demo = $('demoBoard'), NS = 'http://www.w3.org/2000/svg', k = 0;
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      if (!VALID.en(r, c)) continue;
+      var x = c * 18, y = r * 18, isC = r * N + c === CENTER;
+      var rect = document.createElementNS(NS, 'rect');
+      rect.setAttribute('class', 'c'); rect.setAttribute('x', x); rect.setAttribute('y', y);
+      rect.setAttribute('width', 15); rect.setAttribute('height', 15); rect.setAttribute('rx', 4);
+      demo.appendChild(rect);
+      var p = document.createElementNS(NS, 'circle');
+      p.setAttribute('class', 'pg' + (isC ? ' last' : '')); p.setAttribute('cx', x + 7.5); p.setAttribute('cy', y + 7.5); p.setAttribute('r', 5.6);
+      if (!isC) { p.style.animationDelay = ((k * 11) % 32) * 0.1 + 's'; k++; }
+      demo.appendChild(p);
+    }
+
+    for (var i = 0; i <= last; i++) {
+      var d = document.createElement('button');
+      d.type = 'button'; d.setAttribute('aria-label', 'Passo ' + (i + 1));
+      d.addEventListener('click', (function (n) { return function () { go(n); }; })(i));
+      dots.appendChild(d);
+    }
+    function go(n) {
+      step = n;
+      slides.forEach(function (s, j) { s.hidden = j !== step; });
+      dots.querySelectorAll('button').forEach(function (b, j) { b.setAttribute('aria-current', j === step ? 'true' : 'false'); });
+      next.textContent = step === last ? 'Ho capito' : 'Avanti';
+    }
+    function open() {
+      if (S.startedAt) { S.elapsed = elapsed(); S.startedAt = null; paused = true; }
+      go(0); dlg.showModal();
+    }
+    next.addEventListener('click', function () { if (step === last) dlg.close(); else go(step + 1); });
+    $('hClose').addEventListener('click', function () { dlg.close(); });
+    dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener('close', function () {
+      if (paused) { paused = false; if (!S.over) S.startedAt = Date.now() - S.elapsed * 1000; }
+      $('info').focus();
+    });
+    $('info').addEventListener('click', open);
+  }
+
+  function boot(data) {
+    build();
+    setupHowTo();
+    var skin = store('brainvita-skin');
+    if (data && data.board && data.variant) {
+      S = data;
+      if (!S.over && S.moves > 0) S.startedAt = Date.now() - (S.elapsed || 0) * 1000; else S.startedAt = null;
+    } else {
+      S = fresh('en', typeof skin === 'number' ? skin : 0);
+    }
+    $('skin').addEventListener('click', function () { S.skin = (S.skin + 1) % SKINS.length; store('brainvita-skin', S.skin); render(); });
+    $('undo').addEventListener('click', undo);
+    $('pause').addEventListener('click', function () { setPaused(!S.paused); });
+    $('resume').addEventListener('click', function () { setPaused(false); });
+    // Uscendo dall'app (cambio app o scheda, schermo bloccato) la partita in corso va in pausa.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && S.startedAt && !S.over && !S.paused) setPaused(true);
+    });
+    $('rUndo').addEventListener('click', undo);
+    // Con una partita in corso chiede conferma; a partita finita o non iniziata riparte subito.
+    var cd = $('confirm'), cPaused = false, cAction = null, cOpener = null;
+    function confirmThen(opener, title, yes, action) {
+      if (S.over || !S.moves) { action(); return; }
+      if (S.startedAt) { S.elapsed = elapsed(); S.startedAt = null; cPaused = true; }
+      cAction = action; cOpener = opener;
+      $('cTitle').textContent = title; $('cYes').textContent = yes;
+      cd.showModal();
+      $('cNo').focus();
+    }
+    $('restart').addEventListener('click', function () {
+      confirmThen($('restart'), 'Ricominciare?', 'Ricomincia', function () { restart(); });
+    });
+    $('cNo').addEventListener('click', function () { cd.close(); });
+    $('cYes').addEventListener('click', function () { var a = cAction; cPaused = false; cd.close(); if (a) a(); });
+    cd.addEventListener('click', function (e) { if (e.target === cd) cd.close(); });
+    cd.addEventListener('close', function () {
+      if (cPaused) { cPaused = false; if (!S.over) S.startedAt = Date.now() - S.elapsed * 1000; }
+      cAction = null;
+      if (cOpener) cOpener.focus();
+    });
+    $('rNew').addEventListener('click', function () { restart(); });
+    document.querySelectorAll('.seg button').forEach(function (x) {
+      x.addEventListener('click', function () {
+        if (x.dataset.v === S.variant) return;
+        confirmThen(x, 'Cambiare tavola?', 'Cambia', function () { restart(x.dataset.v); });
+      });
+    });
+    setInterval(function () { if (S.startedAt) $('time').textContent = fmt(elapsed()); }, 500);
+    render();
+    if (window.claude && window.claude.hot && window.claude.hot.snapshot) {
+      window.claude.hot.snapshot(function () {
+        return { variant: S.variant, board: S.board, history: S.history, moves: S.moves, elapsed: elapsed(), over: S.over, skin: S.skin, startedAt: null };
+      });
+    }
+  }
+
+  // Registra il service worker solo su http(s): abilita l'uso offline e l'installazione.
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+
+  if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot);
+  else boot((window.claude && window.claude.hot && window.claude.hot.data) || {});
+})();
+</script>
+</body>
+</html>
